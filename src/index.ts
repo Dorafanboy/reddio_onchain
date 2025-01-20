@@ -7,7 +7,7 @@ import { Config } from './config';
 import path from 'path';
 import { IFunction } from './data/utils/interfaces';
 import { executeDeposit } from './core/reddio';
-import { executeClaim, executeWithdraw } from './core/blockchain';
+import { executeClaim, executeWithdrawETH, executeWithdrawRED } from './core/blockchain';
 
 let account;
 
@@ -52,11 +52,20 @@ async function main() {
                 }
             }
             
-            if (Config.isUseWithdraw) {
-                let res = await executeWithdraw(account)
+            if (Config.isUseWithdrawETH) {
+                let res = await executeWithdrawETH(account)
+                if (res) {
+                    await delay(Config.delayBetweenModules.minRange, Config.delayBetweenModules.maxRange, true);
+                } else {
+                    await delay(Config.delayBetweenModules.minRange, Config.delayBetweenModules.maxRange, false);
+                }
+            }
+
+            if (Config.isUseWithdrawRED) {
+                let res = await executeWithdrawRED(account)
                 if (res) {
                     await delay(Config.delayBetweenModules.minRange, Config.delayBetweenModules.maxRange, false);
-                } 
+                }
             }
 
             printSuccess(`Ended [${index + 1}/${count} - ${account.address}]\n`);

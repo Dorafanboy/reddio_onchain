@@ -6,7 +6,7 @@ import {
     type PublicClient,
     type Hash,
     PrivateKeyAccount,
-    Hex,
+    Hex, decodeFunctionData,
 } from 'viem';
 import { Config, reddio } from '../config';
 import { formatUnits } from 'viem';
@@ -15,14 +15,16 @@ import { delay } from '../data/helpers/delayer';
 import { getSwapBalance, getValue } from '../data/utils/utils';
 import { CONTRACT_ABI, CONTRACT_ABI_WITHDRAW } from './abi';
 import axios from 'axios';
+import * as console from 'node:console';
 
 const BRIDGE_GAS_LIMIT = BigInt(3000000);
 
 const CONTRACT_ADDRESS = '0xA3ED8915aE346bF85E56B6BB6b723091716f58b4';
 
 const REDDIO_ETH: Hex = '0x4f4FDcECa7d48822E39097970b6cDBa179C28d9b'
+const REDDIO_RED: Hex = '0x2655fc00139e0274DD0d84270fD80150B5F25426'
 
-export async function executeWithdraw(account: PrivateKeyAccount): Promise<boolean> {
+export async function executeWithdrawETH(account: PrivateKeyAccount): Promise<boolean> {
     printInfo(`Выполняю вывод ETH`);
 
     let currentTry: number = 0,
@@ -61,7 +63,7 @@ export async function executeWithdraw(account: PrivateKeyAccount): Promise<boole
         if (value != null && value != BigInt(-1)) {
             currentTry = Config.retryCount + 1;
         } else {
-            await delay(Config.delayBetweenAction.minRange * 1000, Config.delayBetweenAction.maxRange * 1000, false);
+            await delay(Config.delayBetweenAction.minRange, Config.delayBetweenAction.maxRange, false);
         }
     }
 
@@ -139,11 +141,14 @@ export async function executeWithdraw(account: PrivateKeyAccount): Promise<boole
     }
 }
 
-export async function executeClaim(account: PrivateKeyAccount, txHash: Hash): Promise<boolean> {
-    printInfo(`Выполняю Claim ETH`);
+export async function executeClaim(account: PrivateKeyAccount, txHash: Hash, isETH: boolean): Promise<boolean> {
+    if (isETH) {
+        printInfo(`Выполняю Claim ETH`);
+    } else {
+        printInfo(`Выполняю Claim RED`);
+}
 
     try {
-        // Получаем данные о выводе с API
         const response = await axios.post(
             'https://reddio-dev.reddio.com/bridge/withdrawals',
             {
@@ -271,4 +276,122 @@ export async function executeClaim(account: PrivateKeyAccount, txHash: Hash): Pr
         printError(`Произошла ошибка во время выполнения claim - ${error}`);
         return false;
     }
-} 
+}
+
+export async function executeWithdrawRED(account: PrivateKeyAccount): Promise<boolean> {
+    printInfo(`Выполняю вывод RED`);
+
+    let currentTry: number = 0,
+        value;
+
+    let client!: PublicClient;
+
+    while (currentTry <= Config.retryCount) {
+        if (currentTry == Config.retryCount) {
+            printError(
+                `Не удалось получить значение для вывода. Превышено количество попыток - [${currentTry}/${Config.retryCount}]\n`
+            );
+            return false;
+        }
+
+        client = createPublicClient({
+            chain: reddio,
+            transport: http(Config.rpcReddio)
+        });
+
+        printInfo(`Пытаюсь рассчитать сумму вывода RED`);
+
+        //const reddioRedBalance = await getSwapBalance(client, account.address, REDDIO_RED);
+
+        value = await getValue(
+            client,
+            account.address,
+            Config.withdrawREDRange.range,
+            Config.withdrawREDRange.fixed,
+            true,
+            //reddioRedBalance
+        );
+
+        currentTry++;
+
+        if (value != null && value != BigInt(-1)) {
+            currentTry = Config.retryCount + 1;
+        } else {
+            await delay(Config.delayBetweenAction.minRange, Config.delayBetweenAction.maxRange, false);
+        }
+    }
+
+    if (!value) return false;
+
+    const walletClient = createWalletClient({
+        chain: reddio,
+        transport: http(Config.rpcReddio)
+    });
+    
+    try {
+        printInfo(`Произвожу Withdraw RED Reddio на ${formatUnits(value!, 18)} RED`);
+
+        const nonce = await client.getTransactionCount({ address: account.address });
+
+        const data = encodeFunctionData({
+            abi: CONTRACT_ABI_WITHDRAW,
+            functionName: 'withdrawRED',
+            args: [account.address],
+        });
+
+        const preparedTransaction = await walletClient
+            .prepareTransactionRequest({
+                account,
+                to: CONTRACT_ADDRESS,
+                data: data,
+                nonce: nonce,
+                value: value
+            })
+            .catch((e: Error) => {
+                printError(`Произошла ошибка во время подготовки транзакции - ${e}`);
+                return undefined;
+            });
+
+        if (preparedTransaction != undefined) {
+            const signature = await walletClient.signTransaction(preparedTransaction).catch((e: Error) => {
+                printError(`Произошла ошибка во время подписания транзакции - ${e}`);
+                return undefined;
+            });
+
+            if (signature !== undefined) {
+                const hash = await walletClient.sendRawTransaction({ serializedTransaction: signature }).catch((e: Error) => {
+                    printError(`Произошла ошибка во время отправки транзакции - ${e}`);
+                    return false;
+                });
+
+                if (hash == false) {
+                    return false;
+                }
+
+                const url = `https://reddio-devnet.l2scan.co/tx/${hash}`;
+
+                const transaction = await client
+                    .waitForTransactionReceipt({ hash: <`0x${string}`>hash })
+                    .then(async (result) => {
+                        printSuccess(`Транзакция успешно отправлена. Хэш транзакции: ${url}\n`);
+                    })
+                    .catch((e: Error) => {
+                        printError(`Произошла ошибка во время выполнения модуля - ${e}`);
+                        return { request: undefined };
+                    });
+
+                await delay(Config.delayBetweenModules.minRange, Config.delayBetweenModules.maxRange, true);
+                // @ts-ignore
+                await executeClaim(account, hash)
+
+                return true;
+            }
+        }
+
+        return false;
+
+    } catch (error) {
+        printError(`Произошла ошибка во время выполнения вывода - ${error}`);
+        return false;
+    }
+}
