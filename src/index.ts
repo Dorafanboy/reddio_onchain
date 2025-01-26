@@ -8,6 +8,7 @@ import path from 'path';
 import { IFunction } from './data/utils/interfaces';
 import { executeDeposit } from './core/reddio';
 import { executeClaim, executeWithdrawETH, executeWithdrawRED } from './core/blockchain';
+import { transferREDOnWallet } from './core/transfer';
 
 let account;
 
@@ -42,7 +43,7 @@ async function main() {
 
             account = privateKeyToAccount(<`0x${string}`>line);
             printInfo(`Start [${index + 1}/${count} - ${account.address}]\n`);
-            
+                        
             if (Config.isUseDeposit) {
                 let res = await executeDeposit(account)
                 if (res) {
@@ -65,7 +66,16 @@ async function main() {
                 let res = await executeWithdrawRED(account)
                 if (res) {
                     await delay(Config.delayBetweenModules.minRange, Config.delayBetweenModules.maxRange, false);
+                } else {
+                    await delay(Config.delayBetweenModules.minRange, Config.delayBetweenModules.maxRange, false);
                 }
+            }
+
+            if (Config.isUseTransferOnWallet) {
+                let res = await transferREDOnWallet(account)
+                if (res) {
+                    await delay(Config.delayBetweenModules.minRange, Config.delayBetweenModules.maxRange, true);
+                } 
             }
 
             printSuccess(`Ended [${index + 1}/${count} - ${account.address}]\n`);

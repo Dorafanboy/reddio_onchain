@@ -36,9 +36,14 @@ export class Config {
         range: { minRange: 0.5, maxRange: 1 },
         fixed: { minRange: 3, maxRange: 5 }
     }; // сколько RED выводить из Reddio
-    public static readonly isUseDeposit: boolean = false;
-    public static readonly isUseWithdrawETH: boolean = false;
-    public static readonly isUseWithdrawRED: boolean = true;
+    public static readonly tranferREDRange: { range: IBridgeRange; fixed: IFixedRange } = {
+        range: { minRange: 0.5, maxRange: 1 },
+        fixed: { minRange: 3, maxRange: 5 }
+    }; // сколько RED трансферить на кош
+    public static readonly isUseDeposit: boolean = false; // депозитить етх ли в reddio
+    public static readonly isUseTransferOnWallet: boolean = false; // трансферить ли RED на свой же кошелек
+    public static readonly isUseWithdrawETH: boolean = false; // выводить ли эфир в reddio
+    public static readonly isUseWithdrawRED: boolean = false; // выводить ли RED в reddio
 }
 
 export const reddio = defineChain({
